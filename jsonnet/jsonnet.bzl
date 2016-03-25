@@ -49,9 +49,7 @@ def _jsonnet_library_impl(ctx):
                 imports = imports)
 
 def _jsonnet_toolchain(ctx):
-  return struct(
-      jsonnet_path = ctx.file._jsonnet.path,
-      imports = ["-J %s" % ctx.file._std.dirname])
+  return struct(jsonnet_path = ctx.file.jsonnet.path)
 
 def _jsonnet_to_json_impl(ctx):
   """Implementation of the jsonnet_to_json rule."""
@@ -66,7 +64,6 @@ def _jsonnet_to_json_impl(ctx):
       ] +
       ["-J %s/%s" % (ctx.label.package, im) for im in ctx.attr.imports] +
       ["-J %s" % im for im in depinfo.imports] +
-      toolchain.imports +
       ["-J ."] +
       ["--var '%s'='%s'"
           % (var, jsonnet_vars[var]) for var in jsonnet_vars.keys()] +
@@ -93,7 +90,7 @@ def _jsonnet_to_json_impl(ctx):
     command += [ctx.file.src.path, "-o", compiled_json.path]
 
   compile_inputs = (
-      [ctx.file.src, ctx.file._jsonnet, ctx.file._std] +
+      [ctx.file.src, ctx.file.jsonnet] +
       list(depinfo.transitive_sources))
 
   ctx.action(
@@ -143,22 +140,22 @@ def _jsonnet_to_json_test_impl(ctx):
   toolchain = _jsonnet_toolchain(ctx)
 
   golden_files = []
+  diff_command = ""
   if ctx.file.golden:
     golden_files += [ctx.file.golden]
     if ctx.attr.regex:
       diff_command = _REGEX_DIFF_COMMAND % (ctx.file.golden.short_path,
-                                           ctx.label.name)
+                                            ctx.label.name)
     else:
       diff_command = _DIFF_COMMAND % (ctx.file.golden.short_path,
-                                     ctx.label.name)
+                                      ctx.label.name)
 
   jsonnet_vars = ctx.attr.vars
   jsonnet_code_vars = ctx.attr.code_vars
   jsonnet_command = " ".join(
-      ["OUTPUT=$(%s" % ctx.file._jsonnet.short_path] +
+      ["OUTPUT=$(%s" % ctx.file.jsonnet.short_path] +
       ["-J %s/%s" % (ctx.label.package, im) for im in ctx.attr.imports] +
       ["-J %s" % im for im in depinfo.imports] +
-      toolchain.imports +
       ["-J ."] +
       ["--var %s=%s"
           % (var, jsonnet_vars[var]) for var in jsonnet_vars.keys()] +
@@ -169,8 +166,10 @@ def _jsonnet_to_json_test_impl(ctx):
           "2>&1)",
       ])
 
+  cd_command = "cd %s" % ctx.attr.test_dir if ctx.attr.test_dir else ""
   command = "\n".join([
       "#!/bin/bash",
+      cd_command,
       jsonnet_command,
       _EXIT_CODE_COMPARE_COMMAND % (ctx.attr.error, ctx.label.name),
       diff_command])
@@ -180,7 +179,7 @@ def _jsonnet_to_json_test_impl(ctx):
                   executable = True);
 
   test_inputs = (
-      [ctx.file.src, ctx.file._jsonnet, ctx.file._std] +
+      [ctx.file.src, ctx.file.jsonnet] +
       golden_files +
       list(depinfo.transitive_sources))
 
@@ -193,13 +192,10 @@ _jsonnet_common_attrs = {
         allow_files = False,
     ),
     "imports": attr.string_list(),
-    "_jsonnet": attr.label(
-        default = Label("//jsonnet:jsonnet"),
+    "data": attr.label_list(allow_files = True, cfg = DATA_CFG),
+    "jsonnet": attr.label(
+        default = Label("@jsonnet//cmd:jsonnet"),
         executable = True,
-        single_file = True,
-    ),
-    "_std": attr.label(
-        default = Label("//jsonnet:std"),
         single_file = True,
     ),
 }
@@ -239,6 +235,7 @@ _jsonnet_to_json_test_attrs = _jsonnet_compile_attrs + {
     ),
     "error": attr.int(),
     "regex": attr.bool(),
+    "test_dir": attr.string(),
 }
 
 jsonnet_to_json_test = rule(
@@ -252,5 +249,5 @@ def jsonnet_repositories():
   native.git_repository(
       name = "jsonnet",
       remote = "https://github.com/google/jsonnet.git",
-      tag = "v0.8.1",
+      tag = "v0.8.7",
   )
